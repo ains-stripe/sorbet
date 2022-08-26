@@ -1,5 +1,5 @@
-diff --git a/vm_backtrace.c b/vm_backtrace.c
-index f6b4e8e1d6..edc62c39ba 100644
+diff --git vm_backtrace.c vm_backtrace.c
+index f6b4e8e1d6..7e999f32e8 100644
 --- vm_backtrace.c
 +++ vm_backtrace.c
 @@ -29,6 +29,9 @@ id2str(ID id)
@@ -12,18 +12,84 @@ index f6b4e8e1d6..edc62c39ba 100644
  inline static int
  calc_lineno(const rb_iseq_t *iseq, const VALUE *pc)
  {
-@@ -126,6 +129,10 @@ location_mark_entry(rb_backtrace_location_t *fi)
+@@ -87,7 +90,6 @@ typedef struct rb_backtrace_location_struct {
+ 	LOCATION_TYPE_ISEQ = 1,
+ 	LOCATION_TYPE_ISEQ_CALCED,
+ 	LOCATION_TYPE_CFUNC,
+-	LOCATION_TYPE_IFUNC
+     } type;
+ 
+     union {
+@@ -126,7 +128,10 @@ location_mark_entry(rb_backtrace_location_t *fi)
  	rb_gc_mark((VALUE)fi->body.iseq.iseq);
  	break;
        case LOCATION_TYPE_CFUNC:
+-      case LOCATION_TYPE_IFUNC:
 +        if (fi->body.cfunc.prev_loc) {
 +            location_mark_entry(fi->body.cfunc.prev_loc);
 +        }
 +        break;
-       case LOCATION_TYPE_IFUNC:
        default:
  	break;
-@@ -456,22 +463,47 @@ backtrace_alloc(VALUE klass)
+     }
+@@ -196,7 +201,6 @@ location_label(rb_backtrace_location_t *loc)
+ 	return loc->body.iseq.iseq->body->location.label;
+       case LOCATION_TYPE_CFUNC:
+ 	return rb_id2str(loc->body.cfunc.mid);
+-      case LOCATION_TYPE_IFUNC:
+       default:
+ 	rb_bug("location_label: unreachable");
+ 	UNREACHABLE;
+@@ -245,7 +249,6 @@ location_base_label(rb_backtrace_location_t *loc)
+ 	return loc->body.iseq.iseq->body->location.base_label;
+       case LOCATION_TYPE_CFUNC:
+ 	return rb_id2str(loc->body.cfunc.mid);
+-      case LOCATION_TYPE_IFUNC:
+       default:
+ 	rb_bug("location_base_label: unreachable");
+ 	UNREACHABLE;
+@@ -275,7 +278,6 @@ location_path(rb_backtrace_location_t *loc)
+ 	    return location_path(loc->body.cfunc.prev_loc);
+ 	}
+ 	return Qnil;
+-      case LOCATION_TYPE_IFUNC:
+       default:
+ 	rb_bug("location_path: unreachable");
+ 	UNREACHABLE;
+@@ -308,7 +310,6 @@ location_realpath(rb_backtrace_location_t *loc)
+ 	    return location_realpath(loc->body.cfunc.prev_loc);
+ 	}
+ 	return Qnil;
+-      case LOCATION_TYPE_IFUNC:
+       default:
+ 	rb_bug("location_realpath: unreachable");
+ 	UNREACHABLE;
+@@ -373,7 +374,6 @@ location_to_str(rb_backtrace_location_t *loc)
+ 	}
+ 	name = rb_id2str(loc->body.cfunc.mid);
+ 	break;
+-      case LOCATION_TYPE_IFUNC:
+       default:
+ 	rb_bug("location_to_str: unreachable");
+     }
+@@ -402,7 +402,6 @@ location_inspect_m(VALUE self)
+ 
+ typedef struct rb_backtrace_struct {
+     rb_backtrace_location_t *backtrace;
+-    rb_backtrace_location_t *backtrace_base;
+     int backtrace_size;
+     VALUE strary;
+     VALUE locary;
+@@ -425,7 +424,7 @@ static void
+ backtrace_free(void *ptr)
+ {
+    rb_backtrace_t *bt = (rb_backtrace_t *)ptr;
+-   if (bt->backtrace) ruby_xfree(bt->backtrace_base);
++   if (bt->backtrace) ruby_xfree(bt->backtrace);
+    ruby_xfree(bt);
+ }
+ 
+@@ -456,22 +455,47 @@ backtrace_alloc(VALUE klass)
      return obj;
  }
  
@@ -74,7 +140,7 @@ index f6b4e8e1d6..edc62c39ba 100644
      }
  
      /*                <- start_cfp (end control frame)
-@@ -489,16 +521,43 @@ backtrace_each(const rb_execution_context_t *ec,
+@@ -489,16 +513,43 @@ backtrace_each(const rb_execution_context_t *ec,
  	  RUBY_VM_NEXT_CONTROL_FRAME(start_cfp)); /* skip top frames */
  
      if (start_cfp < last_cfp) {
@@ -120,7 +186,7 @@ index f6b4e8e1d6..edc62c39ba 100644
  	/* fprintf(stderr, "cfp: %d\n", (rb_control_frame_t *)(ec->vm_stack + ec->vm_stack_size) - cfp); */
  	if (cfp->iseq) {
  	    if (cfp->pc) {
-@@ -512,12 +571,16 @@ backtrace_each(const rb_execution_context_t *ec,
+@@ -512,12 +563,16 @@ backtrace_each(const rb_execution_context_t *ec,
  	    iter_cfunc(arg, cfp, mid);
  	}
      }
@@ -137,21 +203,20 @@ index f6b4e8e1d6..edc62c39ba 100644
  };
  
  static void
-@@ -526,8 +589,11 @@ bt_init(void *ptr, size_t size)
+@@ -526,8 +581,10 @@ bt_init(void *ptr, size_t size)
      struct bt_iter_arg *arg = (struct bt_iter_arg *)ptr;
      arg->btobj = backtrace_alloc(rb_cBacktrace);
      GetCoreDataFromValue(arg->btobj, rb_backtrace_t, arg->bt);
 -    arg->bt->backtrace_base = arg->bt->backtrace = ALLOC_N(rb_backtrace_location_t, size);
 -    arg->bt->backtrace_size = 0;
-+    arg->bt->backtrace_base = arg->bt->backtrace = ALLOC_N(rb_backtrace_location_t, size+1);
++    arg->bt->backtrace = ZALLOC_N(rb_backtrace_location_t, size+1);
 +    arg->bt->backtrace_size = 1;
 +    arg->prev_cfp = NULL;
-+    arg->init_loc = &arg->bt->backtrace_base[size];
-+    arg->init_loc->type = 0;
++    arg->init_loc = &arg->bt->backtrace[size];
  }
  
  static void
-@@ -536,7 +602,7 @@ bt_iter_iseq(void *ptr, const rb_control_frame_t *cfp)
+@@ -536,7 +593,7 @@ bt_iter_iseq(void *ptr, const rb_control_frame_t *cfp)
      const rb_iseq_t *iseq = cfp->iseq;
      const VALUE *pc = cfp->pc;
      struct bt_iter_arg *arg = (struct bt_iter_arg *)ptr;
@@ -160,7 +225,7 @@ index f6b4e8e1d6..edc62c39ba 100644
      loc->type = LOCATION_TYPE_ISEQ;
      loc->body.iseq.iseq = iseq;
      loc->body.iseq.lineno.pc = pc;
-@@ -547,41 +613,69 @@ static void
+@@ -547,41 +604,69 @@ static void
  bt_iter_cfunc(void *ptr, const rb_control_frame_t *cfp, ID mid)
  {
      struct bt_iter_arg *arg = (struct bt_iter_arg *)ptr;
@@ -247,7 +312,7 @@ index f6b4e8e1d6..edc62c39ba 100644
  	rb_ary_push(btary, func(loc, arg));
      }
  
-@@ -595,23 +689,14 @@ location_to_str_dmyarg(rb_backtrace_location_t *loc, void *dmy)
+@@ -595,23 +680,14 @@ location_to_str_dmyarg(rb_backtrace_location_t *loc, void *dmy)
  }
  
  static VALUE
@@ -274,7 +339,7 @@ index f6b4e8e1d6..edc62c39ba 100644
      RB_GC_GUARD(self);
      return r;
  }
-@@ -623,7 +708,7 @@ rb_backtrace_to_str_ary(VALUE self)
+@@ -623,7 +699,7 @@ rb_backtrace_to_str_ary(VALUE self)
      GetCoreDataFromValue(self, rb_backtrace_t, bt);
  
      if (!bt->strary) {
@@ -283,7 +348,7 @@ index f6b4e8e1d6..edc62c39ba 100644
      }
      return bt->strary;
  }
-@@ -636,9 +721,9 @@ rb_backtrace_use_iseq_first_lineno_for_last_location(VALUE self)
+@@ -636,9 +712,9 @@ rb_backtrace_use_iseq_first_lineno_for_last_location(VALUE self)
      rb_backtrace_location_t *loc;
  
      GetCoreDataFromValue(self, rb_backtrace_t, bt);
@@ -295,7 +360,7 @@ index f6b4e8e1d6..edc62c39ba 100644
      iseq = loc->body.iseq.iseq;
  
      VM_ASSERT(loc->type == LOCATION_TYPE_ISEQ);
-@@ -661,23 +746,14 @@ location_create(rb_backtrace_location_t *srcloc, void *btobj)
+@@ -661,23 +737,14 @@ location_create(rb_backtrace_location_t *srcloc, void *btobj)
  }
  
  static VALUE
@@ -322,7 +387,7 @@ index f6b4e8e1d6..edc62c39ba 100644
      RB_GC_GUARD(self);
      return r;
  }
-@@ -689,7 +765,7 @@ rb_backtrace_to_location_ary(VALUE self)
+@@ -689,7 +756,7 @@ rb_backtrace_to_location_ary(VALUE self)
      GetCoreDataFromValue(self, rb_backtrace_t, bt);
  
      if (!bt->locary) {
@@ -331,7 +396,7 @@ index f6b4e8e1d6..edc62c39ba 100644
      }
      return bt->locary;
  }
-@@ -713,13 +789,13 @@ backtrace_load_data(VALUE self, VALUE str)
+@@ -713,13 +780,13 @@ backtrace_load_data(VALUE self, VALUE str)
  VALUE
  rb_ec_backtrace_str_ary(const rb_execution_context_t *ec, long lev, long n)
  {
@@ -347,7 +412,7 @@ index f6b4e8e1d6..edc62c39ba 100644
  }
  
  /* make old style backtrace directly */
-@@ -786,9 +862,12 @@ vm_backtrace_print(FILE *fp)
+@@ -786,9 +853,12 @@ vm_backtrace_print(FILE *fp)
      arg.func = oldbt_print;
      arg.data = (void *)fp;
      backtrace_each(GET_EC(),
@@ -360,7 +425,7 @@ index f6b4e8e1d6..edc62c39ba 100644
  		   &arg);
  }
  
-@@ -819,9 +898,12 @@ rb_backtrace_print_as_bugreport(void)
+@@ -819,9 +889,12 @@ rb_backtrace_print_as_bugreport(void)
      arg.data = (int *)&i;
  
      backtrace_each(GET_EC(),
@@ -373,7 +438,7 @@ index f6b4e8e1d6..edc62c39ba 100644
  		   &arg);
  }
  
-@@ -862,16 +944,19 @@ rb_backtrace_each(VALUE (*iter)(VALUE recv, VALUE str), VALUE output)
+@@ -862,16 +935,19 @@ rb_backtrace_each(VALUE (*iter)(VALUE recv, VALUE str), VALUE output)
      arg.func = oldbt_print_to;
      arg.data = &parg;
      backtrace_each(GET_EC(),
@@ -394,7 +459,7 @@ index f6b4e8e1d6..edc62c39ba 100644
  }
  
  static VALUE
-@@ -879,11 +964,10 @@ ec_backtrace_to_ary(const rb_execution_context_t *ec, int argc, const VALUE *arg
+@@ -879,11 +955,10 @@ ec_backtrace_to_ary(const rb_execution_context_t *ec, int argc, const VALUE *arg
  {
      VALUE level, vn;
      long lev, n;
@@ -408,7 +473,7 @@ index f6b4e8e1d6..edc62c39ba 100644
  
      rb_scan_args(argc, argv, "02", &level, &vn);
  
-@@ -892,19 +976,19 @@ ec_backtrace_to_ary(const rb_execution_context_t *ec, int argc, const VALUE *arg
+@@ -892,19 +967,19 @@ ec_backtrace_to_ary(const rb_execution_context_t *ec, int argc, const VALUE *arg
      switch (argc) {
        case 0:
  	lev = lev_default + lev_plus;
@@ -432,7 +497,7 @@ index f6b4e8e1d6..edc62c39ba 100644
  		break;
  	      case Qnil:
  		return Qnil;
-@@ -935,11 +1019,17 @@ ec_backtrace_to_ary(const rb_execution_context_t *ec, int argc, const VALUE *arg
+@@ -935,11 +1010,17 @@ ec_backtrace_to_ary(const rb_execution_context_t *ec, int argc, const VALUE *arg
  	return rb_ary_new();
      }
  
@@ -452,7 +517,7 @@ index f6b4e8e1d6..edc62c39ba 100644
      }
      RB_GC_GUARD(btval);
      return r;
-@@ -1201,9 +1291,12 @@ collect_caller_bindings(const rb_execution_context_t *ec)
+@@ -1201,9 +1282,12 @@ collect_caller_bindings(const rb_execution_context_t *ec)
      data.ary = rb_ary_new();
  
      backtrace_each(ec,
@@ -465,7 +530,7 @@ index f6b4e8e1d6..edc62c39ba 100644
  		   &data);
  
      result = rb_ary_reverse(data.ary);
-@@ -1240,7 +1333,7 @@ rb_debug_inspector_open(rb_debug_inspector_func_t func, void *data)
+@@ -1240,7 +1324,7 @@ rb_debug_inspector_open(rb_debug_inspector_func_t func, void *data)
  
      dbg_context.ec = ec;
      dbg_context.cfp = dbg_context.ec->cfp;
