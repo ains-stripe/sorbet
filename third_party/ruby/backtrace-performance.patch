@@ -1,5 +1,5 @@
 diff --git a/vm_backtrace.c b/vm_backtrace.c
-index f6b4e8e1d6..94d809622d 100644
+index f6b4e8e1d6..edc62c39ba 100644
 --- vm_backtrace.c
 +++ vm_backtrace.c
 @@ -29,6 +29,9 @@ id2str(ID id)
@@ -82,8 +82,7 @@ index f6b4e8e1d6..94d809622d 100644
 +        size = last = 0;
      }
      else {
--	size = start_cfp - last_cfp + 1;
-+	    size = start_cfp - last_cfp + 1;
+ 	size = start_cfp - last_cfp + 1;
 +
 +        if (from_last > size) {
 +            size = last = 0;
@@ -161,14 +160,14 @@ index f6b4e8e1d6..94d809622d 100644
      loc->type = LOCATION_TYPE_ISEQ;
      loc->body.iseq.iseq = iseq;
      loc->body.iseq.lineno.pc = pc;
-@@ -547,41 +613,68 @@ static void
+@@ -547,41 +613,69 @@ static void
  bt_iter_cfunc(void *ptr, const rb_control_frame_t *cfp, ID mid)
  {
      struct bt_iter_arg *arg = (struct bt_iter_arg *)ptr;
 -    rb_backtrace_location_t *loc = &arg->bt->backtrace[arg->bt->backtrace_size++];
 +    rb_backtrace_location_t *loc = &arg->bt->backtrace[arg->bt->backtrace_size++-1];
      loc->type = LOCATION_TYPE_CFUNC;
--    loc->body.cfunc.mid = mid;
+     loc->body.cfunc.mid = mid;
 -    loc->body.cfunc.prev_loc = arg->prev_loc;
 +    if (arg->prev_loc) {
 +        loc->body.cfunc.prev_loc = arg->prev_loc;
@@ -248,7 +247,7 @@ index f6b4e8e1d6..94d809622d 100644
  	rb_ary_push(btary, func(loc, arg));
      }
  
-@@ -595,23 +688,14 @@ location_to_str_dmyarg(rb_backtrace_location_t *loc, void *dmy)
+@@ -595,23 +689,14 @@ location_to_str_dmyarg(rb_backtrace_location_t *loc, void *dmy)
  }
  
  static VALUE
@@ -275,7 +274,7 @@ index f6b4e8e1d6..94d809622d 100644
      RB_GC_GUARD(self);
      return r;
  }
-@@ -623,7 +707,7 @@ rb_backtrace_to_str_ary(VALUE self)
+@@ -623,7 +708,7 @@ rb_backtrace_to_str_ary(VALUE self)
      GetCoreDataFromValue(self, rb_backtrace_t, bt);
  
      if (!bt->strary) {
@@ -284,7 +283,7 @@ index f6b4e8e1d6..94d809622d 100644
      }
      return bt->strary;
  }
-@@ -636,9 +720,9 @@ rb_backtrace_use_iseq_first_lineno_for_last_location(VALUE self)
+@@ -636,9 +721,9 @@ rb_backtrace_use_iseq_first_lineno_for_last_location(VALUE self)
      rb_backtrace_location_t *loc;
  
      GetCoreDataFromValue(self, rb_backtrace_t, bt);
@@ -296,7 +295,7 @@ index f6b4e8e1d6..94d809622d 100644
      iseq = loc->body.iseq.iseq;
  
      VM_ASSERT(loc->type == LOCATION_TYPE_ISEQ);
-@@ -661,23 +745,14 @@ location_create(rb_backtrace_location_t *srcloc, void *btobj)
+@@ -661,23 +746,14 @@ location_create(rb_backtrace_location_t *srcloc, void *btobj)
  }
  
  static VALUE
@@ -323,7 +322,7 @@ index f6b4e8e1d6..94d809622d 100644
      RB_GC_GUARD(self);
      return r;
  }
-@@ -689,7 +764,7 @@ rb_backtrace_to_location_ary(VALUE self)
+@@ -689,7 +765,7 @@ rb_backtrace_to_location_ary(VALUE self)
      GetCoreDataFromValue(self, rb_backtrace_t, bt);
  
      if (!bt->locary) {
@@ -332,7 +331,7 @@ index f6b4e8e1d6..94d809622d 100644
      }
      return bt->locary;
  }
-@@ -713,13 +788,13 @@ backtrace_load_data(VALUE self, VALUE str)
+@@ -713,13 +789,13 @@ backtrace_load_data(VALUE self, VALUE str)
  VALUE
  rb_ec_backtrace_str_ary(const rb_execution_context_t *ec, long lev, long n)
  {
@@ -348,7 +347,7 @@ index f6b4e8e1d6..94d809622d 100644
  }
  
  /* make old style backtrace directly */
-@@ -786,9 +861,12 @@ vm_backtrace_print(FILE *fp)
+@@ -786,9 +862,12 @@ vm_backtrace_print(FILE *fp)
      arg.func = oldbt_print;
      arg.data = (void *)fp;
      backtrace_each(GET_EC(),
@@ -361,7 +360,7 @@ index f6b4e8e1d6..94d809622d 100644
  		   &arg);
  }
  
-@@ -819,9 +897,12 @@ rb_backtrace_print_as_bugreport(void)
+@@ -819,9 +898,12 @@ rb_backtrace_print_as_bugreport(void)
      arg.data = (int *)&i;
  
      backtrace_each(GET_EC(),
@@ -374,7 +373,7 @@ index f6b4e8e1d6..94d809622d 100644
  		   &arg);
  }
  
-@@ -862,16 +943,19 @@ rb_backtrace_each(VALUE (*iter)(VALUE recv, VALUE str), VALUE output)
+@@ -862,16 +944,19 @@ rb_backtrace_each(VALUE (*iter)(VALUE recv, VALUE str), VALUE output)
      arg.func = oldbt_print_to;
      arg.data = &parg;
      backtrace_each(GET_EC(),
@@ -395,7 +394,7 @@ index f6b4e8e1d6..94d809622d 100644
  }
  
  static VALUE
-@@ -879,11 +963,10 @@ ec_backtrace_to_ary(const rb_execution_context_t *ec, int argc, const VALUE *arg
+@@ -879,11 +964,10 @@ ec_backtrace_to_ary(const rb_execution_context_t *ec, int argc, const VALUE *arg
  {
      VALUE level, vn;
      long lev, n;
@@ -409,7 +408,7 @@ index f6b4e8e1d6..94d809622d 100644
  
      rb_scan_args(argc, argv, "02", &level, &vn);
  
-@@ -892,19 +975,19 @@ ec_backtrace_to_ary(const rb_execution_context_t *ec, int argc, const VALUE *arg
+@@ -892,19 +976,19 @@ ec_backtrace_to_ary(const rb_execution_context_t *ec, int argc, const VALUE *arg
      switch (argc) {
        case 0:
  	lev = lev_default + lev_plus;
@@ -433,7 +432,7 @@ index f6b4e8e1d6..94d809622d 100644
  		break;
  	      case Qnil:
  		return Qnil;
-@@ -935,11 +1018,17 @@ ec_backtrace_to_ary(const rb_execution_context_t *ec, int argc, const VALUE *arg
+@@ -935,11 +1019,17 @@ ec_backtrace_to_ary(const rb_execution_context_t *ec, int argc, const VALUE *arg
  	return rb_ary_new();
      }
  
@@ -453,7 +452,7 @@ index f6b4e8e1d6..94d809622d 100644
      }
      RB_GC_GUARD(btval);
      return r;
-@@ -1201,9 +1290,12 @@ collect_caller_bindings(const rb_execution_context_t *ec)
+@@ -1201,9 +1291,12 @@ collect_caller_bindings(const rb_execution_context_t *ec)
      data.ary = rb_ary_new();
  
      backtrace_each(ec,
@@ -466,7 +465,7 @@ index f6b4e8e1d6..94d809622d 100644
  		   &data);
  
      result = rb_ary_reverse(data.ary);
-@@ -1240,7 +1332,7 @@ rb_debug_inspector_open(rb_debug_inspector_func_t func, void *data)
+@@ -1240,7 +1333,7 @@ rb_debug_inspector_open(rb_debug_inspector_func_t func, void *data)
  
      dbg_context.ec = ec;
      dbg_context.cfp = dbg_context.ec->cfp;
